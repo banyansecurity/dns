@@ -307,7 +307,7 @@ func (srv *Server) Listen() error {
 
 	switch srv.Net {
 	case "tcp", "tcp4", "tcp6":
-		l, err := listenTCP(srv.Net, addr, srv.ReusePort)
+		l, err := listenTCP(srv.Net, addr, srv.ReusePort, srv.ReuseAddr)
 		if err != nil {
 			return err
 		}
@@ -320,7 +320,7 @@ func (srv *Server) Listen() error {
 			return errors.New("dns: neither Certificates nor GetCertificate set in Config")
 		}
 		network := strings.TrimSuffix(srv.Net, "-tls")
-		l, err := listenTCP(network, addr, srv.ReusePort)
+		l, err := listenTCP(network, addr, srv.ReusePort, srv.ReuseAddr)
 		if err != nil {
 			return err
 		}
@@ -330,7 +330,7 @@ func (srv *Server) Listen() error {
 		unlock()
 		return nil
 	case "udp", "udp4", "udp6":
-		l, err := listenUDP(srv.Net, addr, srv.ReusePort)
+		l, err := listenUDP(srv.Net, addr, srv.ReusePort, srv.ReuseAddr)
 		if err != nil {
 			return err
 		}
