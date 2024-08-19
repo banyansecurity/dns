@@ -245,10 +245,11 @@ type Server struct {
 	MsgInvalidFunc MsgInvalidFunc
 
 	// Shutdown handling
-	lock     sync.RWMutex
-	started  bool
-	shutdown chan struct{}
-	conns    map[net.Conn]struct{}
+	lock         sync.RWMutex
+	started      bool
+	shutdown     chan struct{}
+	shutdownOnce sync.Once
+	conns        map[net.Conn]struct{}
 
 	// A pool for UDP message buffers.
 	udpPool sync.Pool
@@ -537,7 +538,9 @@ func (srv *Server) serveTCP(l net.Listener) error {
 	var wg sync.WaitGroup
 	defer func() {
 		wg.Wait()
-		close(srv.shutdown)
+		srv.shutdownOnce.Do(func() {
+			close(srv.shutdown)
+		})
 	}()
 
 	for srv.isStarted() {
@@ -584,7 +587,9 @@ func (srv *Server) serveUDP(l net.PacketConn) error {
 	var wg sync.WaitGroup
 	defer func() {
 		wg.Wait()
-		close(srv.shutdown)
+		srv.shutdownOnce.Do(func() {
+			close(srv.shutdown)
+		})
 	}()
 
 	rtimeout := srv.getReadTimeout()
