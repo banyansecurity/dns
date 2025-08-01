@@ -1,5 +1,5 @@
-//go:build windows || darwin
-// +build windows darwin
+//go:build windows
+// +build windows
 
 // TODO(tmthrgd): Remove this Windows-specific code if go.dev/issue/7175 and
 //   go.dev/issue/7174 are ever fixed.
