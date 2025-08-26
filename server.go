@@ -246,10 +246,11 @@ type Server struct {
 	MsgInvalidFunc MsgInvalidFunc
 
 	// Shutdown handling
-	lock     sync.RWMutex
-	started  bool
-	shutdown chan struct{}
-	conns    map[net.Conn]struct{}
+	lock         sync.RWMutex
+	started      bool
+	shutdown     chan struct{}
+	shutdownOnce sync.Once
+	conns        map[net.Conn]struct{}
 
 	// A pool for UDP message buffers.
 	udpPool sync.Pool
@@ -303,6 +304,76 @@ func unlockOnce(l sync.Locker) func() {
 	return func() { once.Do(l.Unlock) }
 }
 
+func (srv *Server) Listen() error {
+	unlock := unlockOnce(&srv.lock)
+	srv.lock.Lock()
+	defer unlock()
+
+	if srv.started {
+		return &Error{err: "server already started"}
+	}
+
+	addr := srv.Addr
+	if addr == "" {
+		addr = ":domain"
+	}
+
+	srv.init()
+
+	switch srv.Net {
+	case "tcp", "tcp4", "tcp6":
+		l, err := listenTCP(srv.Net, addr, srv.ReusePort, srv.ReuseAddr)
+		if err != nil {
+			return err
+		}
+		srv.Listener = l
+		srv.started = true
+		unlock()
+		return nil
+	case "tcp-tls", "tcp4-tls", "tcp6-tls":
+		if srv.TLSConfig == nil || (len(srv.TLSConfig.Certificates) == 0 && srv.TLSConfig.GetCertificate == nil && srv.TLSConfig.GetConfigForClient == nil) {
+			return errors.New("dns: neither Certificates nor GetCertificate nor GetConfigForClient set in Config")
+		}
+		network := strings.TrimSuffix(srv.Net, "-tls")
+		l, err := listenTCP(network, addr, srv.ReusePort, srv.ReuseAddr)
+		if err != nil {
+			return err
+		}
+		l = tls.NewListener(l, srv.TLSConfig)
+		srv.Listener = l
+		srv.started = true
+		unlock()
+		return nil
+	case "udp", "udp4", "udp6":
+		l, err := listenUDP(srv.Net, addr, srv.ReusePort, srv.ReuseAddr)
+		if err != nil {
+			return err
+		}
+		u := l.(*net.UDPConn)
+		if e := setUDPSocketOptions(u); e != nil {
+			u.Close()
+			return e
+		}
+		srv.PacketConn = l
+		srv.started = true
+		unlock()
+		return nil
+	}
+	return &Error{err: "bad network"}
+}
+
+func (srv *Server) Serve() error {
+	switch srv.Net {
+	case "tcp", "tcp4", "tcp6":
+		return srv.serveTCP(srv.Listener)
+	case "tcp-tls", "tcp4-tls", "tcp6-tls":
+		return srv.serveTCP(srv.Listener)
+	case "udp", "udp4", "udp6":
+		return srv.serveUDP(srv.PacketConn)
+	}
+	return &Error{err: "bad network"}
+}
+
 // ListenAndServe starts a nameserver on the configured address in *Server.
 func (srv *Server) ListenAndServe() error {
 	unlock := unlockOnce(&srv.lock)
@@ -331,8 +402,8 @@ func (srv *Server) ListenAndServe() error {
 		unlock()
 		return srv.serveTCP(l)
 	case "tcp-tls", "tcp4-tls", "tcp6-tls":
-		if srv.TLSConfig == nil || (len(srv.TLSConfig.Certificates) == 0 && srv.TLSConfig.GetCertificate == nil) {
-			return errors.New("neither Certificates nor GetCertificate set in config")
+		if srv.TLSConfig == nil || (len(srv.TLSConfig.Certificates) == 0 && srv.TLSConfig.GetCertificate == nil && srv.TLSConfig.GetConfigForClient == nil) {
+			return errors.New("dns: neither Certificates nor GetCertificate nor GetConfigForClient set in Config")
 		}
 		network := strings.TrimSuffix(srv.Net, "-tls")
 		l, err := listenTCP(network, addr, srv.ReusePort, srv.ReuseAddr)
@@ -468,7 +539,9 @@ func (srv *Server) serveTCP(l net.Listener) error {
 	var wg sync.WaitGroup
 	defer func() {
 		wg.Wait()
-		close(srv.shutdown)
+		srv.shutdownOnce.Do(func() {
+			close(srv.shutdown)
+		})
 	}()
 
 	for srv.isStarted() {
@@ -515,7 +588,9 @@ func (srv *Server) serveUDP(l net.PacketConn) error {
 	var wg sync.WaitGroup
 	defer func() {
 		wg.Wait()
-		close(srv.shutdown)
+		srv.shutdownOnce.Do(func() {
+			close(srv.shutdown)
+		})
 	}()
 
 	rtimeout := srv.getReadTimeout()
