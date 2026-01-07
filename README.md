@@ -212,3 +212,58 @@ _all of them_
 - NSD - <https://nlnetlabs.nl/projects/nsd/about/>
 - Net::DNS - <http://www.net-dns.org/>
 - GRONG - <https://github.com/bortzmeyer/grong>
+
+# Upstream Synchronization
+
+Assumes that multiple remotes are present:
+
+```
+> git remote -v
+origin  git@github.com:banyansecurity/dns.git (fetch)
+origin  git@github.com:banyansecurity/dns.git (push)
+upstream        git@github.com:miekg/dns.git (fetch)
+upstream        git@github.com:miekg/dns.git (push)
+```
+
+As an example, for syncing `v1.1.69`, fetch the latest tags:
+
+```
+> git fetch --all
+Fetching origin
+Fetching upstream
+remote: Enumerating objects: 44, done.
+remote: Counting objects: 100% (23/23), done.
+remote: Compressing objects: 100% (13/13), done.
+remote: Total 44 (delta 13), reused 10 (delta 10), pack-reused 21 (from 3)
+Unpacking objects: 100% (44/44), 69.33 KiB | 559.00 KiB/s, done.
+From github.com:miekg/dns
+ * [new branch]        dependabot/go_modules/all-e97dd7be45 -> upstream/dependabot/go_modules/all-e97dd7be45
+   4145b390..3126b782  master                               -> upstream/master
+ * [new tag]           v1.1.69                              -> v1.1.69
+```
+
+Create a new branch based on that tag and make sure it looks good:
+
+```
+> git checkout -b sync-v1.1.69 v1.1.69
+Switched to a new branch 'sync-v1.1.69'
+
+> git log -n 1
+commit 49a9cee9c07326338c622657fde8f0cc8128bf0a (HEAD -> sync-v1.1.69, tag: v1.1.69)
+Author: Miek Gieben <miek@miek.nl>
+Date:   Thu Dec 11 17:10:38 2025 +0100
+
+    Release 1.1.69
+```
+
+Merge in our changes (`master`), handle any merge conflicts, push / handle the pull request as usual with `master` as the target:
+
+```
+> git merge master
+Auto-merging server.go
+Auto-merging version.go
+CONFLICT (content): Merge conflict in version.go
+Automatic merge failed; fix conflicts and then commit the result.
+
+> git add . && git commit && git push origin sync-v1.1.69
+```
